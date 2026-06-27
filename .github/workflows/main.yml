@@ -1,4 +1,4 @@
-name: Build WinPE ISO
+name: Build WinPE with WinNTSetup
 
 on:
   workflow_dispatch: # Allows manual triggering from the Actions tab
@@ -17,39 +17,29 @@ jobs:
       - name: Install Windows ADK and WinPE Add-on
         shell: powershell
         run: |
-          # Function to retry choco installs on network failure or timeouts
           function Install-WithRetry {
               param ([string]$PackageName)
-              $MaxRetries = 3
-              $RetryCount = 0
-              $Success = $false
-
-              do {
-                  Write-Host "Attempting to install $PackageName (Attempt $($RetryCount + 1))"
-                  
-                  # 关键修正：必须显式传递 --install-arguments 给 ADK installer 实现完全静默安装 (/quiet /norestart)
-                  choco install $PackageName -y --no-progress --execution-timeout=2700 --install-arguments="/quiet /norestart"
-                  
-                  if ($LASTEXITCODE -eq 0) {
-                      $Success = $true
-                  } else {
-                      Write-Warning "Install failed. Waiting 15s before retrying..."
-                      Start-Sleep -Seconds 15
-                      $RetryCount++
-                  }
-              } while ($Success -eq $false -and $RetryCount -lt $MaxRetries)
-
-              if (-not $Success) {
-                  Write-Error "Failed to install $PackageName after $MaxRetries attempts."
-                  exit 1
-              }
+              choco install $PackageName -y --no-progress --execution-timeout=2700 --install-arguments="/quiet /norestart"
           }
-
-          # Install the ADK Core
           Install-WithRetry "windows-adk"
-          
-          # Install the WinPE Add-on
           Install-WithRetry "windows-adk-winpe"
+
+      # === 核心步骤：下载官方原版 ZIP 并全自动解压 ===
+      - name: Download and Extract WinNTSetup ZIP
+        shell: powershell
+        run: |
+          Write-Host "正在下载原版 WinNTSetup 压缩包..."
+          # 创建临时下载和解压目录
+          New-Item -ItemType Directory -Force -Path C:\WinNTSetup_ZIP
+          New-Item -ItemType Directory -Force -Path C:\WinNTSetup_Extracted
+          
+          # 从靠谱源下载 5.x 官方全家桶 ZIP 压缩包
+          $Url = "https://github.com/BaileeChapelle/build-winpe-iso/raw/refs/heads/main/WinNTSetup_v542_x64.zip"
+          Invoke-WebRequest -Uri $Url -OutFile "C:\WinNTSetup_ZIP\WinNTSetup.zip"
+          
+          # 调用 PowerShell 原生命令解压全家桶
+          Expand-Archive -Path "C:\WinNTSetup_ZIP\WinNTSetup.zip" -DestinationPath "C:\WinNTSetup_Extracted" -Force
+          Write-Host "解压完成，准备灌入 PE..."
 
       - name: Create WinPE Files, Add Components and Build ISO
         shell: cmd
@@ -60,39 +50,38 @@ jobs:
           :: 2. 创建 64 位 WinPE 工作目录
           call copype amd64 C:\winpe_amd64
           
-          :: 3. 挂载镜像并灌入常用基础组件（PowerShell, WMI, 网络等）
+          :: 3. 挂载镜像并灌入常用基础组件
           echo Mounting WinPE image...
           dism /Mount-Image /ImageFile:"C:\winpe_amd64\media\sources\boot.wim" /index:1 /MountDir:"C:\winpe_amd64\mount"
           
-          echo Injecting Windows PowerShell and WMI components...
+          echo Injecting Windows Components...
           set "OC_DIR=C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs"
-          
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-WMI.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-NetFX.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
 
-          :: 4. 用单行 echo 方式生成 VBS 脚本，完美避开 CMD 括号冲突
-          echo Set objShell = CreateObject("WScript.Shell") > "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-          echo objShell.Run "notepad.exe", 1, False >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-          echo WScript.Sleep 500 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-          echo objShell.SendKeys "%%f" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-          echo WScript.Sleep 200 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-          echo objShell.SendKeys "o" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-          
-          :: 5. 修改启动脚本，开机直接调用它
-          echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
-          echo wpeinit -nocp >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
-          echo cscript //nologo %%SystemRoot%%\System32\auto_open.vbs >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+          :: 4. === 【关键修改】在 PE 镜像里创建专门的程序文件夹，把散落的文件全部完整复制进去 ===
+          mkdir "C:\winpe_amd64\mount\Program Files\WinNTSetup"
+          xcopy /e /y /h /i "C:\WinNTSetup_Extracted\*" "C:\winpe_amd64\mount\Program Files\WinNTSetup\"
 
+          :: 5. === 修改引导外壳配置 (winpeshl.ini) ===
+          :: 路径精确指向 Program Files 目录下的 64 位主程序，并且带上完整的散装文件依赖
+          echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          echo "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe" >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          
+          :: 6. 把启动脚本留空，彻底防止硬件扫描死锁
+          echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+
+          :: 7. 卸载并保存修改
           echo Unmounting and saving changes...
           dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
           
-          :: 9. 生成最终的 ISO 镜像
+          :: 8. 生成最终的 ISO 镜像
           echo Generating final ISO file...
           call MakeWinPEMedia /ISO C:\winpe_amd64 C:\winpe_amd64\WinPE_amd64.iso
-              
+
       - name: Upload WinPE ISO
         uses: actions/upload-artifact@v7
         with:
