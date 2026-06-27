@@ -86,20 +86,6 @@ jobs:
           echo wpeinit -nocp >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
           echo cscript //nologo %%SystemRoot%%\System32\auto_open.vbs >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
 
-          :: 6. 挂载 PE 的系统注册表
-          reg load HKLM\PE_SYSTEM "C:\winpe_amd64\mount\Windows\System32\config\SYSTEM"
-
-          :: 7. 先强制创建 LabConfig 子项，再注入对应的绕过键值
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /f
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f
-          reg add "HKLM\PE_SYSTEM\Setup" /v "DisableWebOnReboot" /t REG_DWORD /d 1 /f
-          reg add "HKLM\PE_SYSTEM\Setup" /v "RestartSetup" /t REG_DWORD /d 0 /f
-
-          :: 8. 卸载并保存 PE 注册表
-          reg unload HKLM\PE_SYSTEM
-
           echo Unmounting and saving changes...
           dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
           
