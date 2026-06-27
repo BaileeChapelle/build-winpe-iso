@@ -27,8 +27,8 @@ jobs:
               do {
                   Write-Host "Attempting to install $PackageName (Attempt $($RetryCount + 1))"
                   
-                  # --execution-timeout=2700 sets the limit to 45 minutes (default is too short for ADK)
-                  choco install $PackageName -y --no-progress --execution-timeout=2700
+                  # 关键修正：必须显式传递 --install-arguments 给 ADK  installer 实现完全静默安装 (/quiet /norestart)
+                  choco install $PackageName -y --no-progress --execution-timeout=2700 --install-arguments="/quiet /norestart"
                   
                   if ($LASTEXITCODE -eq 0) {
                       $Success = $true
@@ -51,17 +51,33 @@ jobs:
           # Install the WinPE Add-on
           Install-WithRetry "windows-adk-winpe"
 
-      - name: Create WinPE Files and Build ISO
+      - name: Create WinPE Files, Add Components and Build ISO
         shell: cmd
         run: |
-          :: 1. Locate the Deployment Tools environment script
-          :: Note: Even for Win 11 ADK, the path often remains "Windows Kits\10"
+          :: 1. 定位部署工具环境变量
           call "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\DandISetEnv.bat"
           
-          :: 2. Create the working directory for 64-bit WinPE
+          :: 2. 创建 64 位 WinPE 工作目录
           call copype amd64 C:\winpe_amd64
           
-          :: 3. Generate the ISO file
+          :: 3. 【新增优化】挂载镜像并灌入常用基础组件（PowerShell, WMI, 网络等）
+          echo Mounting WinPE image...
+          dism /Mount-Image /ImageFile:"C:\winpe_amd64\media\sources\boot.wim" /index:1 /MountDir:"C:\winpe_amd64\mount"
+          
+          echo Injecting Windows PowerShell and WMI components...
+          set "OC_DIR=C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs"
+          
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-WMI.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-NetFX.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
+          
+          echo Unmounting and saving changes...
+          dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
+          
+          :: 4. 生成最终的 ISO 镜像
+          echo Generating final ISO file...
           call MakeWinPEMedia /ISO C:\winpe_amd64 C:\winpe_amd64\WinPE_amd64.iso
 
       - name: Upload WinPE ISO
