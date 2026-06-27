@@ -1,4 +1,4 @@
-name: Build WinPE with WinNTSetup
+name: Build WinPE with WinNTSetup and CMD
 
 on:
   workflow_dispatch: # Allows manual triggering from the Actions tab
@@ -34,7 +34,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path C:\WinNTSetup_Extracted
           
           # 从靠谱源下载 5.x 官方全家桶 ZIP 压缩包
-          $Url = "https://github.com/BaileeChapelle/build-winpe-iso/raw/refs/heads/main/WinNTSetup_v542_x64.zip"
+          $Url = "https://github.com/v-v-i-p/dump/releases/download/v1/WinNTSetup.zip"
           Invoke-WebRequest -Uri $Url -OutFile "C:\WinNTSetup_ZIP\WinNTSetup.zip"
           
           # 调用 PowerShell 原生命令解压全家桶
@@ -62,16 +62,17 @@ jobs:
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
 
-          :: 4. === 【关键修改】在 PE 镜像里创建专门的程序文件夹，把散落的文件全部完整复制进去 ===
+          :: 4. === 将 WinNTSetup 散落的文件全部完整复制进去 ===
           mkdir "C:\winpe_amd64\mount\Program Files\WinNTSetup"
           xcopy /e /y /h /i "C:\WinNTSetup_Extracted\*" "C:\winpe_amd64\mount\Program Files\WinNTSetup\"
 
-          :: 5. === 修改引导外壳配置 (winpeshl.ini) ===
-          :: 路径精确指向 Program Files 目录下的 64 位主程序，并且带上完整的散装文件依赖
+          :: 5. === 【关键修改】调整引导外壳配置 (winpeshl.ini) ===
+          :: 同时拉起 WinNTSetup 和独立的 cmd.exe 黑窗口，互不干扰
           echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
           echo "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe" >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          echo %%SystemRoot%%\System32\cmd.exe >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
           
-          :: 6. 把启动脚本留空，彻底防止硬件扫描死锁
+          :: 6. 把老是惹祸的启动脚本留空，彻底防止硬件扫描死锁
           echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
 
           :: 7. 卸载并保存修改
