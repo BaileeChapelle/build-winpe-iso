@@ -72,6 +72,17 @@ jobs:
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
+
+          :: 1. 挂载 PE 的系统注册表
+          reg load HKLM\PE_SYSTEM "C:\winpe_amd64\mount\Windows\System32\config\SYSTEM"
+
+          :: 2. 注入绕过 TPM、SecureBoot 和内存检测的注册表项
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f
+
+          :: 3. 卸载并保存 PE 注册表
+          reg unload HKLM\PE_SYSTEM
           
           echo Unmounting and saving changes...
           dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
