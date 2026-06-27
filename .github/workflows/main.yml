@@ -27,7 +27,7 @@ jobs:
               do {
                   Write-Host "Attempting to install $PackageName (Attempt $($RetryCount + 1))"
                   
-                  # 关键修正：必须显式传递 --install-arguments 给 ADK  installer 实现完全静默安装 (/quiet /norestart)
+                  # 关键修正：必须显式传递 --install-arguments 给 ADK installer 实现完全静默安装 (/quiet /norestart)
                   choco install $PackageName -y --no-progress --execution-timeout=2700 --install-arguments="/quiet /norestart"
                   
                   if ($LASTEXITCODE -eq 0) {
@@ -60,7 +60,7 @@ jobs:
           :: 2. 创建 64 位 WinPE 工作目录
           call copype amd64 C:\winpe_amd64
           
-          :: 3. 【新增优化】挂载镜像并灌入常用基础组件（PowerShell, WMI, 网络等）
+          :: 3. 挂载镜像并灌入常用基础组件（PowerShell, WMI, 网络等）
           echo Mounting WinPE image...
           dism /Mount-Image /ImageFile:"C:\winpe_amd64\media\sources\boot.wim" /index:1 /MountDir:"C:\winpe_amd64\mount"
           
@@ -73,21 +73,39 @@ jobs:
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
 
-          :: 1. 挂载 PE 的系统注册表
-          reg load HKLM\PE_SYSTEM "C:\winpe_amd64\mount\Windows\System32\config\SYSTEM"
-
-          :: 2. 注入绕过 TPM、SecureBoot 和内存检测的注册表项
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f
-          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f
-
-          :: 3. 卸载并保存 PE 注册表
-          reg unload HKLM\PE_SYSTEM
+          :: 4. 用单行 echo 方式生成 VBS 脚本，完美避开 CMD 括号冲突
+          echo Set objShell = CreateObject("WScript.Shell") > "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo objShell.Run "notepad.exe", 1, False >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo WScript.Sleep 500 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo objShell.SendKeys "%%f" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo WScript.Sleep 200 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo objShell.SendKeys "o" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
           
+          :: 5. 修改启动脚本，开机直接调用它
+          echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+          echo wpeinit -nocp >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+          echo cscript //nologo %%SystemRoot%%\System32\auto_open.vbs >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+
+			:: 6. 挂载 PE 的系统注册表
+			reg load HKLM\PE_SYSTEM "C:\winpe_amd64\mount\Windows\System32\config\SYSTEM"
+
+			:: 7. 【关键修正】先强制创建 LabConfig 子项，再注入对应的绕过键值
+			reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /f
+			reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f
+			reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f
+			reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f
+
+			:: 【额外追加保险】直接把 Win11 宿主内核的硬件检查也给降级（防止 wpeinit 本身在无 TPM 的虚拟机里死锁）
+			reg add "HKLM\PE_SYSTEM\Setup" /v "DisableWebOnReboot" /t REG_DWORD /d 1 /f
+			reg add "HKLM\PE_SYSTEM\Setup" /v "RestartSetup" /t REG_DWORD /d 0 /f
+
+			:: 8. 卸载并保存 PE 注册表
+			reg unload HKLM\PE_SYSTEM
+
           echo Unmounting and saving changes...
           dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
           
-          :: 4. 生成最终的 ISO 镜像
+          :: 9. 生成最终的 ISO 镜像
           echo Generating final ISO file...
           call MakeWinPEMedia /ISO C:\winpe_amd64 C:\winpe_amd64\WinPE_amd64.iso
 
