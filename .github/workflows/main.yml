@@ -54,59 +54,59 @@ jobs:
       - name: Create WinPE Files, Add Components and Build ISO
         shell: cmd
         run: |
-		  :: 1. 定位部署工具环境变量
-		  call "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\DandISetEnv.bat"
-		  
-		  :: 2. 创建 64 位 WinPE 工作目录
-		  call copype amd64 C:\winpe_amd64
-		  
-		  :: 3. 挂载镜像并灌入常用基础组件（PowerShell, WMI, 网络等）
-		  echo Mounting WinPE image...
-		  dism /Mount-Image /ImageFile:"C:\winpe_amd64\media\sources\boot.wim" /index:1 /MountDir:"C:\winpe_amd64\mount"
-		  
-		  echo Injecting Windows PowerShell and WMI components...
-		  set "OC_DIR=C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs"
-		  
-		  dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-WMI.cab"
-		  dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-NetFX.cab"
-		  dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
-		  dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
-		  dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
+          :: 1. 定位部署工具环境变量
+          call "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\DandISetEnv.bat"
+          
+          :: 2. 创建 64 位 WinPE 工作目录
+          call copype amd64 C:\winpe_amd64
+          
+          :: 3. 挂载镜像并灌入常用基础组件（PowerShell, WMI, 网络等）
+          echo Mounting WinPE image...
+          dism /Mount-Image /ImageFile:"C:\winpe_amd64\media\sources\boot.wim" /index:1 /MountDir:"C:\winpe_amd64\mount"
+          
+          echo Injecting Windows PowerShell and WMI components...
+          set "OC_DIR=C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Windows Preinstallation Environment\amd64\WinPE_OCs"
+          
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-WMI.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-NetFX.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
 
-		  :: 4. 用单行 echo 方式生成 VBS 脚本，完美避开 CMD 括号冲突
-		  echo Set objShell = CreateObject("WScript.Shell") > "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-		  echo objShell.Run "notepad.exe", 1, False >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-		  echo WScript.Sleep 500 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-		  echo objShell.SendKeys "%%f" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-		  echo WScript.Sleep 200 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-		  echo objShell.SendKeys "o" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
-		  
-		  :: 5. 修改启动脚本，开机直接调用它
-		  echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
-		  echo wpeinit -nocp >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
-		  echo cscript //nologo %%SystemRoot%%\System32\auto_open.vbs >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+          :: 4. 用单行 echo 方式生成 VBS 脚本，完美避开 CMD 括号冲突
+          echo Set objShell = CreateObject("WScript.Shell") > "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo objShell.Run "notepad.exe", 1, False >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo WScript.Sleep 500 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo objShell.SendKeys "%%f" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo WScript.Sleep 200 >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          echo objShell.SendKeys "o" >> "C:\winpe_amd64\mount\Windows\System32\auto_open.vbs"
+          
+          :: 5. 修改启动脚本，开机直接调用它
+          echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+          echo wpeinit -nocp >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
+          echo cscript //nologo %%SystemRoot%%\System32\auto_open.vbs >> "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
 
-		  :: 6. 挂载 PE 的系统注册表
-		  reg load HKLM\PE_SYSTEM "C:\winpe_amd64\mount\Windows\System32\config\SYSTEM"
+          :: 6. 挂载 PE 的系统注册表
+          reg load HKLM\PE_SYSTEM "C:\winpe_amd64\mount\Windows\System32\config\SYSTEM"
 
-		  :: 7. 先强制创建 LabConfig 子项，再注入对应的绕过键值
-		  reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /f
-		  reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f
-		  reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f
-		  reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f
-		  reg add "HKLM\PE_SYSTEM\Setup" /v "DisableWebOnReboot" /t REG_DWORD /d 1 /f
-		  reg add "HKLM\PE_SYSTEM\Setup" /v "RestartSetup" /t REG_DWORD /d 0 /f
+          :: 7. 先强制创建 LabConfig 子项，再注入对应的绕过键值
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /f
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f
+          reg add "HKLM\PE_SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f
+          reg add "HKLM\PE_SYSTEM\Setup" /v "DisableWebOnReboot" /t REG_DWORD /d 1 /f
+          reg add "HKLM\PE_SYSTEM\Setup" /v "RestartSetup" /t REG_DWORD /d 0 /f
 
-		  :: 8. 卸载并保存 PE 注册表
-		  reg unload HKLM\PE_SYSTEM
+          :: 8. 卸载并保存 PE 注册表
+          reg unload HKLM\PE_SYSTEM
 
-		  echo Unmounting and saving changes...
-		  dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
-		  
-		  :: 9. 生成最终的 ISO 镜像
-		  echo Generating final ISO file...
-		  call MakeWinPEMedia /ISO C:\winpe_amd64 C:\winpe_amd64\WinPE_amd64.iso
-			  
+          echo Unmounting and saving changes...
+          dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
+          
+          :: 9. 生成最终的 ISO 镜像
+          echo Generating final ISO file...
+          call MakeWinPEMedia /ISO C:\winpe_amd64 C:\winpe_amd64\WinPE_amd64.iso
+              
       - name: Upload WinPE ISO
         uses: actions/upload-artifact@v7
         with:
