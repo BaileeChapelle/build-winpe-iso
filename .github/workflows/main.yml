@@ -110,7 +110,7 @@ jobs:
               copy /y "%GITHUB_WORKSPACE%\Readme.txt" "C:\winpe_amd64\mount\Windows\System32\Readme.txt"
           )
 
-          :: 6. === 生成无冲突语法的并发多弹窗脚本（后台依次静默预装运行库与7z） ===
+          :: 6. === 生成无冲突语法的并发多弹窗脚本 ===
           (
           echo @echo off
           echo title WinPE Core Launcher
@@ -119,16 +119,17 @@ jobs:
           echo if exist "%%SystemDrive%%\Program Files\soft\vc_redist_x86.exe" start /wait "" "%%SystemDrive%%\Program Files\soft\vc_redist_x86.exe" /quiet /norestart
           echo :: 2. 自动静默安装 7-Zip 到 PE 系统中 (使用大写 /S)
           echo if exist "%%SystemDrive%%\Program Files\soft\7z2602-x64.exe" start /wait "" "%%SystemDrive%%\Program Files\soft\7z2602-x64.exe" /S
-          echo :: 3. 运行库与基础工具就绪后，全并发拉起你的核心图形界面
+          echo :: 3. 全并发拉起你的核心图形界面
           echo start "" "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe"
           echo start "" "%%SystemDrive%%\Program Files\FarManager\Far.exe"
           echo start "" notepad.exe %%SystemRoot%%\System32\Readme.txt
-          echo cmd.exe 
+          echo :: 【核心驻留】用 /k 维持整个 PE 的生命周期，防秒重启，并留作备用命令行
+          echo cmd.exe /k
           ) > "C:\winpe_amd64\mount\Windows\System32\launch_all.cmd"
 
-          :: 7. === 【核心修复】让 winpeshl 优雅地通过 cmd.exe 调用批处理，彻底解决无法启动的 Bug ===
+          :: 7. === 【完美对齐】微软官方正统语法，用双引号规避一切路径解析 Bug ===
           echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
-          echo %%SystemRoot%%\System32\cmd.exe, /k %%SystemRoot%%\System32\launch_all.cmd >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          echo "%%SystemRoot%%\System32\launch_all.cmd" >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
           
           :: 8. 将可能引起死锁的默认启动流脚本彻底置空
           echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
