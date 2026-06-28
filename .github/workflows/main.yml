@@ -1,4 +1,4 @@
-name: Build WinPE with WinNTSetup and CMD
+name: Build WinPE with Auto-Launch Tools
 
 on:
   workflow_dispatch: # Allows manual triggering from the Actions tab
@@ -24,25 +24,34 @@ jobs:
           Install-WithRetry "windows-adk"
           Install-WithRetry "windows-adk-winpe"
 
-      # === 核心步骤：直接原地解压仓库里的本地压缩包 ===
-      - name: Extract Local WinNTSetup ZIP
+      # === Core Step: Extract repository local tools ZIPs ===
+      - name: Extract Local Tools ZIPs
         shell: powershell
         run: |
-          Write-Host "检测到仓库自带的 WinNTSetup，正在准备原地解压..."
-          # 创建解压目标目录
+          Write-Host "Checking local tools from repository..."
           New-Item -ItemType Directory -Force -Path C:\WinNTSetup_Extracted
+          New-Item -ItemType Directory -Force -Path C:\FreeCommander32_Extracted
           
-          # 因为 actions/checkout 会把仓库文件拉到当前工作目录下，直接指定文件名即可
-          $LocalZipPath = "WinNTSetup_v542_x64.zip"
-          
-          if (Test-Path $LocalZipPath) {
-              Write-Host "找到压缩包，正在解压..."
-              Expand-Archive -Path $LocalZipPath -DestinationPath "C:\WinNTSetup_Extracted" -Force
-              Write-Host "解压完成！"
+          # 1. Extract WinNTSetup
+          $NTSetupZip = "WinNTSetup_v542_x64.zip"
+          if (Test-Path $NTSetupZip) {
+              Write-Host "Extracting WinNTSetup..."
+              Expand-Archive -Path $NTSetupZip -DestinationPath "C:\WinNTSetup_Extracted" -Force
           } else {
-              Write-Error "在仓库根目录下没有找到 WinNTSetup_v542_x64.zip，请确认文件名大小写是否一致。"
+              Write-Error "Error: $NTSetupZip not found in repository root."
               exit 1
           }
+          
+          # 2. Extract 32-bit FreeCommander
+          $FC32Zip = "FreeCommanderXE-32_portable941.zip"
+          if (Test-Path $FC32Zip) {
+              Write-Host "Extracting FreeCommander 32-bit..."
+              Expand-Archive -Path $FC32Zip -DestinationPath "C:\FreeCommander32_Extracted" -Force
+          } else {
+              Write-Error "Error: $FC32Zip not found in repository root."
+              exit 1
+          }
+          Write-Host "All tools extracted successfully!"
 
       - name: Create WinPE Files, Add Components and Build ISO
         shell: cmd
@@ -53,7 +62,7 @@ jobs:
           :: 2. 创建 64 位 WinPE 工作目录
           call copype amd64 C:\winpe_amd64
           
-          :: 3. 挂载镜像并灌入常用基础组件
+          :: 3. 挂载镜像并灌入组件
           echo Mounting WinPE image...
           dism /Mount-Image /ImageFile:"C:\winpe_amd64\media\sources\boot.wim" /index:1 /MountDir:"C:\winpe_amd64\mount"
           
@@ -64,25 +73,41 @@ jobs:
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Wow64.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\en-us\WinPE-Wow64_en-us.cab"
 
-          :: 4. === 将 WinNTSetup 散落的文件全部完整复制进去 ===
+          :: 4. === 将解压出来的工具平铺复制进 PE 的 Program Files 目录 ===
           mkdir "C:\winpe_amd64\mount\Program Files\WinNTSetup"
           xcopy /e /y /h /i "C:\WinNTSetup_Extracted\*" "C:\winpe_amd64\mount\Program Files\WinNTSetup\"
-
-          :: 5. === 调整引导外壳配置 (winpeshl.ini) ===
-          :: 同时拉起 WinNTSetup 和独立的 cmd.exe 黑窗口，互不干扰
-          echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
-          echo "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe" >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
-          echo %%SystemRoot%%\System32\cmd.exe >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
           
-          :: 6. 把老是惹祸的启动脚本留空，彻底防止硬件扫描死锁
+          mkdir "C:\winpe_amd64\mount\Program Files\FreeCommander32"
+          xcopy /e /y /h /i "C:\FreeCommander32_Extracted\*" "C:\winpe_amd64\mount\Program Files\FreeCommander32\"
+
+          :: 5. === 将仓库根目录下的 Readme.txt 直接灌入 PE ===
+          if exist Readme.txt copy /y Readme.txt "C:\winpe_amd64\mount\Windows\System32\Readme.txt"
+
+          :: 6. === 核心：生成无冲突语法的并发多弹窗脚本 ===
+          (
+          echo @echo off
+          echo title WinPE Core Launcher
+          echo start "" "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe"
+          echo start "" "%%SystemDrive%%\Program Files\FreeCommander32\FreeCommander.exe"
+          echo start "" notepad.exe %%SystemRoot%%\System32\Readme.txt
+          echo cmd.exe 
+          ) > "C:\winpe_amd64\mount\Windows\System32\launch_all.cmd"
+
+          :: 7. === 修改引导外壳配置，使其优先调用多弹窗脚本 ===
+          echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          echo %%SystemRoot%%\System32\launch_all.cmd >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          
+          :: 8. 将可能引起死锁的默认启动流脚本彻底置空
           echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
 
-          :: 7. 卸载并保存修改
+          :: 9. 卸载并保存修改
           echo Unmounting and saving changes...
           dism /Unmount-Image /MountDir:"C:\winpe_amd64\mount" /Commit
           
-          :: 8. 生成最终的 ISO 镜像
+          :: 10. 生成最终的 ISO 镜像
           echo Generating final ISO file...
           call MakeWinPEMedia /ISO C:\winpe_amd64 C:\winpe_amd64\WinPE_amd64.iso
 
