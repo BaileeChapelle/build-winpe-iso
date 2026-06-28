@@ -24,22 +24,25 @@ jobs:
           Install-WithRetry "windows-adk"
           Install-WithRetry "windows-adk-winpe"
 
-      # === 核心步骤：下载官方原版 ZIP 并全自动解压 ===
-      - name: Download and Extract WinNTSetup ZIP
+      # === 核心步骤：直接原地解压仓库里的本地压缩包 ===
+      - name: Extract Local WinNTSetup ZIP
         shell: powershell
         run: |
-          Write-Host "正在下载原版 WinNTSetup 压缩包..."
-          # 创建临时下载和解压目录
-          New-Item -ItemType Directory -Force -Path C:\WinNTSetup_ZIP
+          Write-Host "检测到仓库自带的 WinNTSetup，正在准备原地解压..."
+          # 创建解压目标目录
           New-Item -ItemType Directory -Force -Path C:\WinNTSetup_Extracted
           
-          # 从靠谱源下载 5.x 官方全家桶 ZIP 压缩包
-          $Url = "https://github.com/v-v-i-p/dump/releases/download/v1/WinNTSetup.zip"
-          Invoke-WebRequest -Uri $Url -OutFile "C:\WinNTSetup_ZIP\WinNTSetup.zip"
+          # 因为 actions/checkout 会把仓库文件拉到当前工作目录下，直接指定文件名即可
+          $LocalZipPath = "WinNTSetup_v542_x64.zip"
           
-          # 调用 PowerShell 原生命令解压全家桶
-          Expand-Archive -Path "C:\WinNTSetup_ZIP\WinNTSetup.zip" -DestinationPath "C:\WinNTSetup_Extracted" -Force
-          Write-Host "解压完成，准备灌入 PE..."
+          if (Test-Path $LocalZipPath) {
+              Write-Host "找到压缩包，正在解压..."
+              Expand-Archive -Path $LocalZipPath -DestinationPath "C:\WinNTSetup_Extracted" -Force
+              Write-Host "解压完成！"
+          } else {
+              Write-Error "在仓库根目录下没有找到 WinNTSetup_v542_x64.zip，请确认文件名大小写是否一致。"
+              exit 1
+          }
 
       - name: Create WinPE Files, Add Components and Build ISO
         shell: cmd
@@ -66,7 +69,7 @@ jobs:
           mkdir "C:\winpe_amd64\mount\Program Files\WinNTSetup"
           xcopy /e /y /h /i "C:\WinNTSetup_Extracted\*" "C:\winpe_amd64\mount\Program Files\WinNTSetup\"
 
-          :: 5. === 【关键修改】调整引导外壳配置 (winpeshl.ini) ===
+          :: 5. === 调整引导外壳配置 (winpeshl.ini) ===
           :: 同时拉起 WinNTSetup 和独立的 cmd.exe 黑窗口，互不干扰
           echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
           echo "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe" >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
