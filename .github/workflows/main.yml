@@ -96,15 +96,14 @@ jobs:
           mkdir "C:\winpe_amd64\mount\Program Files\FarManager"
           xcopy /e /y /h /i "C:\FarManager_Extracted\*" "C:\winpe_amd64\mount\Program Files\FarManager\"
 
-          :: 在 PE 里为其他安装包和软件创建专门的目录
+          :: 在 PE 里为其他安装包和软件创建专门的 soft 目录
           mkdir "C:\winpe_amd64\mount\Program Files\soft"
           if exist "%GITHUB_WORKSPACE%\7z2602-x64.exe" copy /y "%GITHUB_WORKSPACE%\7z2602-x64.exe" "C:\winpe_amd64\mount\Program Files\soft\"
           if exist "%GITHUB_WORKSPACE%\DOpusInstall-13.23.exe" copy /y "%GITHUB_WORKSPACE%\DOpusInstall-13.23.exe" "C:\winpe_amd64\mount\Program Files\soft\"
           
-          :: === 将下载好的 VC++ 运行库安装包复制进 PE 内部的专门目录 ===
-          mkdir "C:\winpe_amd64\mount\Windows\System32\Tools"
-          copy /y "C:\VC_Redist\vc_redist_x64.exe" "C:\winpe_amd64\mount\Windows\System32\Tools\"
-          copy /y "C:\VC_Redist\vc_redist_x86.exe" "C:\winpe_amd64\mount\Windows\System32\Tools\"
+          :: === 【路径修复】精准将下载好的 VC++ 运行库安装包也复制进 soft 目录下 ===
+          copy /y "C:\VC_Redist\vc_redist_x64.exe" "C:\winpe_amd64\mount\Program Files\soft\"
+          copy /y "C:\VC_Redist\vc_redist_x86.exe" "C:\winpe_amd64\mount\Program Files\soft\"
 
           :: 5. === 使用绝对路径确保 Readme.txt 成功灌入 PE ===
           if exist "%GITHUB_WORKSPACE%\Readme.txt" (
@@ -116,8 +115,8 @@ jobs:
           echo @echo off
           echo title WinPE Core Launcher
           echo :: 1. 优先后台静默安装 VC++ 运行库
-          echo start /wait "" "%%SystemRoot%%\System32\Tools\vc_redist_x64.exe" /quiet /norestart
-          echo start /wait "" "%%SystemRoot%%\System32\Tools\vc_redist_x86.exe" /quiet /norestart
+          echo if exist "%%SystemDrive%%\Program Files\soft\vc_redist_x64.exe" start /wait "" "%%SystemDrive%%\Program Files\soft\vc_redist_x64.exe" /quiet /norestart
+          echo if exist "%%SystemDrive%%\Program Files\soft\vc_redist_x86.exe" start /wait "" "%%SystemDrive%%\Program Files\soft\vc_redist_x86.exe" /quiet /norestart
           echo :: 2. 自动静默安装 7-Zip 到 PE 系统中 (使用大写 /S)
           echo if exist "%%SystemDrive%%\Program Files\soft\7z2602-x64.exe" start /wait "" "%%SystemDrive%%\Program Files\soft\7z2602-x64.exe" /S
           echo :: 3. 运行库与基础工具就绪后，全并发拉起你的核心图形界面
