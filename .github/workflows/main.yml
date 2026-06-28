@@ -24,15 +24,25 @@ jobs:
           Install-WithRetry "windows-adk"
           Install-WithRetry "windows-adk-winpe"
 
-      # === Core Step: Extract repository local tools ZIPs ===
+      # === 1. 下载微软官方最新的 VC++ 运行库 ===
+      - name: Download Latest VC++ Redistributable
+        shell: powershell
+        run: |
+          Write-Host "Downloading VC++ Redistributables..."
+          New-Item -ItemType Directory -Force -Path C:\VC_Redist
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "C:\VC_Redist\vc_redist_x64.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile "C:\VC_Redist\vc_redist_x86.exe"
+          Write-Host "VC++ download completed successfully."
+
+      # === 2. 仓库内压缩包：原地解压步骤 ===
       - name: Extract Local Tools ZIPs
         shell: powershell
         run: |
           Write-Host "Checking local tools from repository..."
           New-Item -ItemType Directory -Force -Path C:\WinNTSetup_Extracted
-          New-Item -ItemType Directory -Force -Path C:\FreeCommander32_Extracted
+          New-Item -ItemType Directory -Force -Path C:\FarManager_Extracted
           
-          # 1. Extract WinNTSetup
+          # 解压 WinNTSetup
           $NTSetupZip = "WinNTSetup_v542_x64.zip"
           if (Test-Path $NTSetupZip) {
               Write-Host "Extracting WinNTSetup..."
@@ -42,15 +52,16 @@ jobs:
               exit 1
           }
           
-          # 2. Extract 32-bit FreeCommander
-          $FC32Zip = "FreeCommanderXE-32_portable941.zip"
-          if (Test-Path $FC32Zip) {
-              Write-Host "Extracting FreeCommander 32-bit..."
-              Expand-Archive -Path $FC32Zip -DestinationPath "C:\FreeCommander32_Extracted" -Force
+          # 解压 Far Manager
+          $FarZip = "Far30b6699.x86.20260614.zip"
+          if (Test-Path $FarZip) {
+              Write-Host "Extracting Far Manager..."
+              Expand-Archive -Path $FarZip -DestinationPath "C:\FarManager_Extracted" -Force
           } else {
-              Write-Error "Error: $FC32Zip not found in repository root."
+              Write-Error "Error: $FarZip not found in repository root."
               exit 1
           }
+          
           Write-Host "All tools extracted successfully!"
 
       - name: Create WinPE Files, Add Components and Build ISO
@@ -73,25 +84,45 @@ jobs:
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Scripting.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-PowerShell.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-StorageWMI.cab"
-          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-Wow64.cab"
-          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\en-us\WinPE-Wow64_en-us.cab"
+          
+          :: 【核心追加】灌入 BitLocker 安全启动和解锁依赖组件
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-SecureStartup.cab"
+          dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\en-us\WinPE-SecureStartup_en-us.cab"
 
           :: 4. === 将解压出来的工具平铺复制进 PE 的 Program Files 目录 ===
           mkdir "C:\winpe_amd64\mount\Program Files\WinNTSetup"
           xcopy /e /y /h /i "C:\WinNTSetup_Extracted\*" "C:\winpe_amd64\mount\Program Files\WinNTSetup\"
+
+          mkdir "C:\winpe_amd64\mount\Program Files\FarManager"
+          xcopy /e /y /h /i "C:\FarManager_Extracted\*" "C:\winpe_amd64\mount\Program Files\FarManager\"
+
+          :: 在 PE 里为其他安装包和软件创建专门的目录
+          mkdir "C:\winpe_amd64\mount\Program Files\soft"
+          if exist "%GITHUB_WORKSPACE%\7z2602-x64.exe" copy /y "%GITHUB_WORKSPACE%\7z2602-x64.exe" "C:\winpe_amd64\mount\Program Files\soft\"
+          if exist "%GITHUB_WORKSPACE%\DOpusInstall-13.23.exe" copy /y "%GITHUB_WORKSPACE%\DOpusInstall-13.23.exe" "C:\winpe_amd64\mount\Program Files\soft\"
           
-          mkdir "C:\winpe_amd64\mount\Program Files\FreeCommander32"
-          xcopy /e /y /h /i "C:\FreeCommander32_Extracted\*" "C:\winpe_amd64\mount\Program Files\FreeCommander32\"
+          :: === 将下载好的 VC++ 运行库安装包复制进 PE 内部的专门目录 ===
+          mkdir "C:\winpe_amd64\mount\Windows\System32\Tools"
+          copy /y "C:\VC_Redist\vc_redist_x64.exe" "C:\winpe_amd64\mount\Windows\System32\Tools\"
+          copy /y "C:\VC_Redist\vc_redist_x86.exe" "C:\winpe_amd64\mount\Windows\System32\Tools\"
 
-          :: 5. === 将仓库根目录下的 Readme.txt 直接灌入 PE ===
-          if exist Readme.txt copy /y Readme.txt "C:\winpe_amd64\mount\Windows\System32\Readme.txt"
+          :: 5. === 使用绝对路径确保 Readme.txt 成功灌入 PE ===
+          if exist "%GITHUB_WORKSPACE%\Readme.txt" (
+              copy /y "%GITHUB_WORKSPACE%\Readme.txt" "C:\winpe_amd64\mount\Windows\System32\Readme.txt"
+          )
 
-          :: 6. === 核心：生成无冲突语法的并发多弹窗脚本 ===
+          :: 6. === 生成无冲突语法的并发多弹窗脚本（后台依次静默预装运行库与7z） ===
           (
           echo @echo off
           echo title WinPE Core Launcher
+          echo :: 1. 优先后台静默安装 VC++ 运行库
+          echo start /wait "" "%%SystemRoot%%\System32\Tools\vc_redist_x64.exe" /quiet /norestart
+          echo start /wait "" "%%SystemRoot%%\System32\Tools\vc_redist_x86.exe" /quiet /norestart
+          echo :: 2. 自动静默安装 7-Zip 到 PE 系统中 (使用大写 /S)
+          echo if exist "%%SystemDrive%%\Program Files\soft\7z2602-x64.exe" start /wait "" "%%SystemDrive%%\Program Files\soft\7z2602-x64.exe" /S
+          echo :: 3. 运行库与基础工具就绪后，全并发拉起你的核心图形界面
           echo start "" "%%SystemDrive%%\Program Files\WinNTSetup\WinNTSetup_x64.exe"
-          echo start "" "%%SystemDrive%%\Program Files\FreeCommander32\FreeCommander.exe"
+          echo start "" "%%SystemDrive%%\Program Files\FarManager\Far.exe"
           echo start "" notepad.exe %%SystemRoot%%\System32\Readme.txt
           echo cmd.exe 
           ) > "C:\winpe_amd64\mount\Windows\System32\launch_all.cmd"
