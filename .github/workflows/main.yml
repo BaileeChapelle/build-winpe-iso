@@ -73,11 +73,30 @@ jobs:
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\WinPE-SecureStartup.cab"
           dism /Image:"C:\winpe_amd64\mount" /Add-Package /PackagePath:"%OC_DIR%\en-us\WinPE-SecureStartup_en-us.cab"
 
-          :: 4. === 【完美修复】直接从 Github 宿主机提取现成的 64 位 VC++ 核心依赖 DLL ===
-          echo Copying 64-bit VC++ DLLs from Host System...
+          :: 4. === 【终极修复】暴力拷贝宿主机全套 VC++ 140 核心及周边所有 DLL，彻底根治 Side-by-Side 报错 ===
+          echo Copying Full VC++ 140 Runtimes from Host System...
           copy /y "C:\Windows\System32\msvcp140*.dll" "C:\winpe_amd64\mount\Windows\System32\"
           copy /y "C:\Windows\System32\vcruntime140*.dll" "C:\winpe_amd64\mount\Windows\System32\"
-          copy /y "C:\Windows\System32\concrt140.dll" "C:\winpe_amd64\mount\Windows\System32\"
+          copy /y "C:\Windows\System32\vccorlib140*.dll" "C:\winpe_amd64\mount\Windows\System32\"
+          copy /y "C:\Windows\System32\concrt140*.dll" "C:\winpe_amd64\mount\Windows\System32\"
+          copy /y "C:\Windows\System32\mfc140*.dll" "C:\winpe_amd64\mount\Windows\System32\"
+          copy /y "C:\Windows\System32\ucrtbase.dll" "C:\winpe_amd64\mount\Windows\System32\"
+
+          :: === 白嫖宿主机中文字体，彻底根治 PE 中文方框乱码 ===
+          echo Copying Chinese Fonts from Host System...
+          if exist "C:\Windows\Fonts\msyh.ttc" copy /y "C:\Windows\Fonts\msyh.ttc" "C:\winpe_amd64\mount\Windows\Fonts\"
+          if exist "C:\Windows\Fonts\msyhbd.ttc" copy /y "C:\Windows\Fonts\msyhbd.ttc" "C:\winpe_amd64\mount\Windows\Fonts\"
+          if exist "C:\Windows\Fonts\msyhl.ttc" copy /y "C:\Windows\Fonts\msyhl.ttc" "C:\winpe_amd64\mount\Windows\Fonts\"
+          if exist "C:\Windows\Fonts\simsun.ttc" copy /y "C:\Windows\Fonts\simsun.ttc" "C:\winpe_amd64\mount\Windows\Fonts\"
+
+          :: === 挂载 PE 注册表并注册字体，让系统和 Far Manager 完美识别 ===
+          echo Registering Chinese Fonts into PE Registry...
+          reg load HKLM\PE_SOFTWARE "C:\winpe_amd64\mount\Windows\System32\config\software"
+          reg add "HKLM\PE_SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" /v "Microsoft YaHei (TrueType)" /t REG_SZ /d "msyh.ttc" /f
+          reg add "HKLM\PE_SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" /v "Microsoft YaHei Bold (TrueType)" /t REG_SZ /d "msyhbd.ttc" /f
+          reg add "HKLM\PE_SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" /v "Microsoft YaHei Light (TrueType)" /t REG_SZ /d "msyhl.ttc" /f
+          reg add "HKLM\PE_SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" /v "SimSun & NSimSun (TrueType)" /t REG_SZ /d "simsun.ttc" /f
+          reg unload HKLM\PE_SOFTWARE
 
           :: 5. === 复制工具到 Program Files ===
           mkdir "C:\winpe_amd64\mount\Program Files\WinNTSetup"
