@@ -128,7 +128,7 @@ jobs:
 
           :: 7. === 【核心修复】让 winpeshl 优雅地通过 cmd.exe 调用批处理，彻底解决无法启动的 Bug ===
           echo [LaunchApps] > "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
-          echo %%SystemRoot%%\System32\cmd.exe, /c %%SystemRoot%%\System32\launch_all.cmd >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
+          echo %%SystemRoot%%\System32\cmd.exe, /k %%SystemRoot%%\System32\launch_all.cmd >> "C:\winpe_amd64\mount\Windows\System32\winpeshl.ini"
           
           :: 8. 将可能引起死锁的默认启动流脚本彻底置空
           echo @echo off > "C:\winpe_amd64\mount\Windows\System32\startnet.cmd"
