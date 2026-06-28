@@ -42,7 +42,7 @@ jobs:
           }
           
           # 解压 Far Manager (请确保你已经在仓库里把它替换成了 64 位的 zip 包，并在下面匹配好文件名)
-          $FarZip = "Far30b6699.x86.20260614.zip"  # 如果你换了 64 位包，记得把这里也改成你的 64 位包名
+          $FarZip = "Far30b6699.x64.20260614.zip"  # 如果你换了 64 位包，记得把这里也改成你的 64 位包名
           if (Test-Path $FarZip) {
               Expand-Archive -Path $FarZip -DestinationPath "C:\FarManager_Extracted" -Force
           } else {
